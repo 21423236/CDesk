@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+build/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Environment files (never commit secrets!)
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Electron-specific
+*.rdp
+
+# Config files with potential secrets
+rdp-tunnel-config.json

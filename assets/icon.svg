@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0d1117"/>
+      <stop offset="100%" style="stop-color:#161b22"/>
+    </linearGradient>
+    <linearGradient id="accentGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00d4ff"/>
+      <stop offset="100%" style="stop-color:#00a8cc"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="256" height="256" rx="48" fill="url(#bgGradient)"/>
+
+  <!-- Border -->
+  <rect x="4" y="4" width="248" height="248" rx="44" fill="none" stroke="#30363d" stroke-width="2"/>
+
+  <!-- Monitor Screen -->
+  <rect x="48" y="56" width="160" height="110" rx="8" fill="#21262d" stroke="#30363d" stroke-width="2"/>
+
+  <!-- Screen Content - Connection Lines -->
+  <path d="M68 95 L128 75 L188 95" stroke="url(#accentGradient)" stroke-width="3" fill="none" stroke-linecap="round" filter="url(#glow)"/>
+  <circle cx="68" cy="95" r="6" fill="#00d4ff" filter="url(#glow)"/>
+  <circle cx="128" cy="75" r="6" fill="#00d4ff" filter="url(#glow)"/>
+  <circle cx="188" cy="95" r="6" fill="#00d4ff" filter="url(#glow)"/>
+
+  <!-- Bottom connection -->
+  <path d="M68 125 L128 145 L188 125" stroke="url(#accentGradient)" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.6"/>
+  <circle cx="68" cy="125" r="4" fill="#00a8cc" opacity="0.6"/>
+  <circle cx="128" cy="145" r="4" fill="#00a8cc" opacity="0.6"/>
+  <circle cx="188" cy="125" r="4" fill="#00a8cc" opacity="0.6"/>
+
+  <!-- Monitor Stand -->
+  <rect x="108" y="166" width="40" height="8" rx="2" fill="#30363d"/>
+  <rect x="118" y="174" width="20" height="12" rx="2" fill="#30363d"/>
+  <rect x="88" y="186" width="80" height="8" rx="4" fill="#21262d" stroke="#30363d" stroke-width="2"/>
+
+  <!-- Status Indicator -->
+  <circle cx="200" cy="185" r="10" fill="#0d1117" stroke="#00d4ff" stroke-width="2"/>
+  <circle cx="200" cy="185" r="5" fill="#00d4ff">
+    <animate attributeName="opacity" values="1;0.3;1" dur="2s" repeatCount="indefinite"/>
+  </circle>
+</svg>
