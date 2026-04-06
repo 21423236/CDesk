@@ -806,7 +806,7 @@ async function connectToRemote(computer) {
       const output = data.toString();
       console.log(`Proxy stdout: ${output}`);
       
-      if (output.includes('Registered tunnel connection') || 
+      if (output.includes('Start Websocket listener') || 
           output.includes('Connection ready') ||
           output.includes('Proxy started')) {
         proxyReady = true;
@@ -818,14 +818,13 @@ async function connectToRemote(computer) {
       console.log(`Proxy stderr: ${output}`);
       
       // Check for ready indicators in stderr (cloudflared logs to stderr)
-      if (output.includes('Registered tunnel connection') ||
-          output.includes('Starting metrics server') ||
+      if (output.includes('Start Websocket listener') ||
           output.includes('Connection established')) {
         proxyReady = true;
       }
       
-      // Check for errors
-      if (output.includes('error') || output.includes('Error') || output.includes('failed')) {
+      // Check for actual errors (not just informational messages)
+      if (output.includes('ERR ') || output.includes('error:') || output.includes('failed:')) {
         proxyError = output;
       }
     });
