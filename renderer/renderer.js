@@ -27,6 +27,9 @@ const elements = {
   // Sections
   cloudflaredSection: document.getElementById('cloudflaredSection'),
   remoteList: document.getElementById('remoteList'),
+  syncStatus: document.getElementById('syncStatus'),
+  syncText: document.getElementById('syncText'),
+  computerCount: document.getElementById('computerCount'),
 
   // Modal
   settingsModal: document.getElementById('settingsModal'),
@@ -156,8 +159,19 @@ async function loadRemoteComputers() {
   }
 }
 
+// Update sync status
+function updateSyncStatus(computers) {
+  if (!elements.syncStatus) return;
+  
+  const now = new Date();
+  elements.syncText.textContent = `Last synced: ${now.toLocaleTimeString()}`;
+  elements.computerCount.textContent = `${computers.length} computer${computers.length !== 1 ? 's' : ''} online`;
+}
+
 // Render remote computers list
 function renderRemoteComputers(computers) {
+  updateSyncStatus(computers);
+  
   if (!computers || computers.length === 0) {
     elements.remoteList.innerHTML = `
       <div class="empty-state">

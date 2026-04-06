@@ -337,6 +337,29 @@ async function githubApiRequest(urlPath, options = {}) {
       let data = '';
       res.on('data', (chunk) => data += chunk);
       res.on('end', () => {
+        // Monitor rate limit
+        const rateLimit = {
+          limit: parseInt(res.headers['x-ratelimit-limit'] || '5000'),
+          remaining: parseInt(res.headers['x-ratelimit-remaining'] || '5000'),
+          reset: parseInt(res.headers['x-ratelimit-reset'] || '0')
+        };
+        
+        const usedPercentage = (rateLimit.limit - rateLimit.remaining) / rateLimit.limit * 100;
+        console.log(`GitHub API Rate Limit: ${rateLimit.remaining}/${rateLimit.limit} remaining (${usedPercentage.toFixed(1)}% used)`);
+        
+        // Warn if approaching rate limit
+        if (rateLimit.remaining < 500) {
+          console.warn(`Warning: GitHub API rate limit approaching. Only ${rateLimit.remaining} requests remaining.`);
+        }
+        
+        // Handle rate limit exceeded
+        if (res.statusCode === 403 && rateLimit.remaining === 0) {
+          const resetTime = new Date(rateLimit.reset * 1000);
+          const waitSeconds = Math.ceil((resetTime - new Date()) / 1000);
+          reject(new Error(`GitHub API rate limit exceeded. Resets in ${waitSeconds} seconds at ${resetTime.toLocaleTimeString()}`));
+          return;
+        }
+        
         console.log(`GitHub API Response: Status ${res.statusCode}`);
         console.log(`Response headers:`, JSON.stringify(res.headers));
         console.log(`Response body (${data.length} bytes):`, data.substring(0, 500));
@@ -540,6 +563,15 @@ async function startTunnel() {
         // Start refresh interval
         startRefreshInterval();
 
+        // Immediately get remote computers list
+        getRemoteComputers().then(remoteComputers => {
+          if (mainWindow) {
+            mainWindow.webContents.send('remote-computers-updated', remoteComputers);
+          }
+        }).catch(error => {
+          console.error('Failed to get remote computers:', error);
+        });
+
         // Update UI
         if (mainWindow) {
           mainWindow.webContents.send('tunnel-started', { url: tunnelUrl });
@@ -583,6 +615,15 @@ async function startTunnel() {
           isTunnelRunning = true;
           updateGistAddress(tunnelUrl);
           startRefreshInterval();
+
+          // Immediately get remote computers list
+          getRemoteComputers().then(remoteComputers => {
+            if (mainWindow) {
+              mainWindow.webContents.send('remote-computers-updated', remoteComputers);
+            }
+          }).catch(error => {
+            console.error('Failed to get remote computers:', error);
+          });
 
           if (mainWindow) {
             mainWindow.webContents.send('tunnel-started', { url: tunnelUrl });
@@ -645,7 +686,7 @@ function startRefreshInterval() {
         console.error('Refresh error:', error);
       }
     }
-  }, 300000); // 5 minutes
+  }, 30000); // 30 seconds
 }
 
 // Stop refresh interval

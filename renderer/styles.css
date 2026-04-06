@@ -530,6 +530,41 @@ body::before {
   color: var(--text-primary);
 }
 
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.sync-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-success);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.sync-text {
+  flex: 1;
+}
+
+.computer-count {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
 .remote-list {
   display: flex;
   flex-direction: column;
