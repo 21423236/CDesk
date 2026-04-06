@@ -6,6 +6,7 @@ let config = {};
 let isTunnelRunning = false;
 let tunnelUrl = null;
 let isCloudflaredInstalled = false;
+let activeConnections = []; // Track active remote connections
 
 // DOM Elements
 const elements = {
@@ -59,8 +60,22 @@ async function init() {
   await checkCloudflared();
   await checkTunnelStatus();
   await loadRemoteComputers();
+  await loadActiveConnections();
   setupEventListeners();
   setupIPCListeners();
+}
+
+// Load active connections
+async function loadActiveConnections() {
+  try {
+    activeConnections = await window.electronAPI.getActiveConnections();
+    if (activeConnections.length > 0) {
+      console.log(`Loaded ${activeConnections.length} active connections`);
+    }
+  } catch (error) {
+    console.error('Failed to load active connections:', error);
+    activeConnections = [];
+  }
 }
 
 // Load configuration
@@ -189,30 +204,50 @@ function renderRemoteComputers(computers) {
     return;
   }
 
-  elements.remoteList.innerHTML = computers.map(computer => `
-    <div class="remote-card" data-name="${computer.name}">
-      <div class="remote-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="2" y="3" width="20" height="14" rx="2"/>
-          <line x1="8" y1="21" x2="16" y2="21"/>
-          <line x1="12" y1="17" x2="12" y2="21"/>
-        </svg>
+  elements.remoteList.innerHTML = computers.map(computer => {
+    const connection = activeConnections.find(c => c.computerName === computer.name);
+    const isConnected = connection !== undefined;
+    
+    return `
+      <div class="remote-card ${isConnected ? 'connected' : ''}" data-name="${computer.name}">
+        <div class="remote-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2"/>
+            <line x1="8" y1="21" x2="16" y2="21"/>
+            <line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+        </div>
+        <div class="remote-info">
+          <div class="remote-name">${escapeHtml(computer.name)}</div>
+          <div class="remote-url">${escapeHtml(computer.url)}</div>
+          ${isConnected ? `
+            <div class="connection-status">
+              <span class="status-badge connected">Connected</span>
+              <span class="connection-port">Port: ${connection.localPort}</span>
+            </div>
+          ` : `
+            <div class="remote-meta">Last seen: ${formatTime(computer.timestamp)}</div>
+          `}
+        </div>
+        ${isConnected ? `
+          <button class="btn btn-danger disconnect-btn" data-name="${computer.name}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+            <span>Disconnect</span>
+          </button>
+        ` : `
+          <button class="btn btn-primary connect-btn" data-name="${computer.name}" data-url="${computer.url}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            <span>Connect</span>
+          </button>
+        `}
       </div>
-      <div class="remote-info">
-        <div class="remote-name">${escapeHtml(computer.name)}</div>
-        <div class="remote-url">${escapeHtml(computer.url)}</div>
-        <div class="remote-meta">Last seen: ${formatTime(computer.timestamp)}</div>
-      </div>
-      <button class="btn btn-primary connect-btn" data-name="${computer.name}" data-url="${computer.url}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="2" y="3" width="20" height="14" rx="2"/>
-          <line x1="8" y1="21" x2="16" y2="21"/>
-          <line x1="12" y1="17" x2="12" y2="21"/>
-        </svg>
-        <span>Connect</span>
-      </button>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 
   // Add connect button listeners
   elements.remoteList.querySelectorAll('.connect-btn').forEach(btn => {
@@ -224,19 +259,60 @@ function renderRemoteComputers(computers) {
       connectToRemote(computer);
     });
   });
+  
+  // Add disconnect button listeners
+  elements.remoteList.querySelectorAll('.disconnect-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      disconnectFromRemote(btn.dataset.name);
+    });
+  });
 }
 
 // Connect to remote computer
 async function connectToRemote(computer) {
+  showToast(`Connecting to ${computer.name}...`, 'info');
+  
   try {
     const result = await window.electronAPI.connectToRemote(computer);
     if (result.success) {
-      showToast(`Connecting to ${computer.name}...`, 'success');
+      showToast(result.message || `Connected to ${computer.name} on port ${result.localPort}`, 'success');
+      
+      // Update active connections
+      activeConnections.push({
+        computerName: computer.name,
+        localPort: result.localPort,
+        remoteUrl: computer.url
+      });
+      
+      // Refresh UI
+      loadRemoteComputers();
     } else {
       showToast(`Failed to connect: ${result.error}`, 'error');
     }
   } catch (error) {
     showToast(`Connection error: ${error.message}`, 'error');
+  }
+}
+
+// Disconnect from remote computer
+async function disconnectFromRemote(computerName) {
+  showToast(`Disconnecting from ${computerName}...`, 'info');
+  
+  try {
+    const result = await window.electronAPI.disconnectFromRemote(computerName);
+    if (result.success) {
+      showToast(`Disconnected from ${computerName}`, 'success');
+      
+      // Update active connections
+      activeConnections = activeConnections.filter(c => c.computerName !== computerName);
+      
+      // Refresh UI
+      loadRemoteComputers();
+    } else {
+      showToast(`Failed to disconnect: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    showToast(`Disconnect error: ${error.message}`, 'error');
   }
 }
 

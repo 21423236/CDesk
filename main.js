@@ -23,6 +23,7 @@ let tunnelProcess = null;
 let tunnelUrl = null;
 let isTunnelRunning = false;
 let refreshInterval = null;
+let activeProxyProcesses = []; // Store active proxy processes for remote connections
 
 // Paths
 const appDataPath = app.getPath('userData');
@@ -697,29 +698,207 @@ function stopRefreshInterval() {
   }
 }
 
+// Find available local port for proxy
+async function findAvailablePort(startPort = 3390, endPort = 3400) {
+  const net = require('net');
+  
+  for (let port = startPort; port <= endPort; port++) {
+    try {
+      await new Promise((resolve, reject) => {
+        const server = net.createServer();
+        server.once('error', (err) => {
+          if (err.code === 'EADDRINUSE') {
+            reject(err);
+          } else {
+            reject(err);
+          }
+        });
+        server.once('listening', () => {
+          server.close();
+          resolve();
+        });
+        server.listen(port);
+      });
+      console.log(`Found available port: ${port}`);
+      return port;
+    } catch (err) {
+      if (err.code === 'EADDRINUSE') {
+        console.log(`Port ${port} is in use, trying next port`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  
+  throw new Error(`No available port found between ${startPort} and ${endPort}`);
+}
+
+// Cleanup all active proxy processes
+function cleanupProxyProcesses() {
+  console.log(`Cleaning up ${activeProxyProcesses.length} active proxy processes`);
+  
+  activeProxyProcesses.forEach(proxy => {
+    try {
+      if (proxy.process && !proxy.process.killed) {
+        proxy.process.kill('SIGTERM');
+        console.log(`Killed proxy for ${proxy.computerName} on port ${proxy.localPort}`);
+      }
+    } catch (e) {
+      console.error(`Failed to kill proxy for ${proxy.computerName}:`, e.message);
+    }
+  });
+  
+  activeProxyProcesses = [];
+}
+
+// Disconnect from specific remote computer
+function disconnectFromRemote(computerName) {
+  const proxy = activeProxyProcesses.find(p => p.computerName === computerName);
+  
+  if (proxy) {
+    try {
+      if (proxy.process && !proxy.process.killed) {
+        proxy.process.kill('SIGTERM');
+        console.log(`Disconnected from ${computerName}`);
+      }
+      activeProxyProcesses = activeProxyProcesses.filter(p => p.computerName !== computerName);
+      return { success: true };
+    } catch (e) {
+      console.error(`Failed to disconnect from ${computerName}:`, e.message);
+      return { success: false, error: e.message };
+    }
+  }
+  
+  return { success: false, error: 'No active connection found for this computer' };
+}
+
 // Connect to remote computer
 async function connectToRemote(computer) {
   try {
+    console.log(`Connecting to remote computer: ${computer.name}`);
+    console.log(`Remote URL: ${computer.url}`);
+    
+    // 1. Parse remote hostname
+    const remoteHostname = computer.url.replace(/^https?:\/\//, '');
+    console.log(`Remote hostname: ${remoteHostname}`);
+    
+    // 2. Find available local port for proxy
+    const localPort = await findAvailablePort(3390, 3400);
+    console.log(`Assigned local port: ${localPort}`);
+    
+    // 3. Start cloudflared access TCP proxy
+    console.log('Starting cloudflared access TCP proxy...');
+    const proxyProcess = spawn('cloudflared', [
+      'access',
+      'tcp',
+      '--hostname', remoteHostname,
+      '--url', `localhost:${localPort}`
+    ], {
+      windowsHide: true,
+      detached: false
+    });
+    
+    // 4. Monitor proxy startup
+    let proxyReady = false;
+    let proxyError = null;
+    
+    proxyProcess.stdout.on('data', (data) => {
+      const output = data.toString();
+      console.log(`Proxy stdout: ${output}`);
+      
+      if (output.includes('Registered tunnel connection') || 
+          output.includes('Connection ready') ||
+          output.includes('Proxy started')) {
+        proxyReady = true;
+      }
+    });
+    
+    proxyProcess.stderr.on('data', (data) => {
+      const output = data.toString();
+      console.log(`Proxy stderr: ${output}`);
+      
+      // Check for ready indicators in stderr (cloudflared logs to stderr)
+      if (output.includes('Registered tunnel connection') ||
+          output.includes('Starting metrics server') ||
+          output.includes('Connection established')) {
+        proxyReady = true;
+      }
+      
+      // Check for errors
+      if (output.includes('error') || output.includes('Error') || output.includes('failed')) {
+        proxyError = output;
+      }
+    });
+    
+    proxyProcess.on('error', (err) => {
+      console.error('Proxy process error:', err);
+      proxyError = err.message;
+    });
+    
+    proxyProcess.on('close', (code) => {
+      console.log(`Proxy process exited with code ${code}`);
+      if (code !== 0 && code !== null) {
+        proxyError = `Proxy exited with code ${code}`;
+      }
+    });
+    
+    // 5. Wait for proxy to be ready (max 10 seconds)
+    console.log('Waiting for proxy to be ready...');
+    const startTime = Date.now();
+    const maxWaitTime = 10000; // 10 seconds
+    
+    while (!proxyReady && !proxyError) {
+      if (Date.now() - startTime > maxWaitTime) {
+        proxyProcess.kill();
+        throw new Error('Proxy failed to start within 10 seconds');
+      }
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
+    if (proxyError) {
+      proxyProcess.kill();
+      throw new Error(`Proxy error: ${proxyError}`);
+    }
+    
+    console.log(`Proxy is ready on localhost:${localPort}`);
+    
+    // 6. Create RDP file connecting to local proxy
     const rdpFile = path.join(appDataPath, `remote-${computer.name}.rdp`);
-    const rdpHost = computer.url.replace(/^https?:\/\//, '');
-
-    const rdpContent = `full address:s:${rdpHost}
+    const rdpContent = `full address:s:localhost:${localPort}
 username:s:
 prompt for credentials:i:1
 authentication level:i:2
 enablecredsspsupport:i:1
 `;
-
+    
     fs.writeFileSync(rdpFile, rdpContent, 'ascii');
-
-    // Launch mstsc
+    console.log(`Created RDP file: ${rdpFile}`);
+    
+    // 7. Launch RDP client
+    console.log('Launching mstsc.exe...');
     const rdpProcess = spawn('mstsc.exe', [rdpFile], {
       windowsHide: false,
       detached: true
     });
-
-    return { success: true };
+    
+    // 8. Store proxy process for later cleanup
+    activeProxyProcesses.push({
+      process: proxyProcess,
+      computerName: computer.name,
+      localPort: localPort,
+      remoteUrl: computer.url,
+      startTime: new Date()
+    });
+    
+    console.log(`Successfully connected to ${computer.name} via localhost:${localPort}`);
+    
+    return { 
+      success: true, 
+      localPort,
+      message: `Connected to ${computer.name} on port ${localPort}`
+    };
   } catch (error) {
+    console.error('Connection error:', error);
     return { success: false, error: error.message };
   }
 }
@@ -789,6 +968,19 @@ ipcMain.handle('connect-to-remote', async (event, computer) => {
   return await connectToRemote(computer);
 });
 
+ipcMain.handle('disconnect-from-remote', async (event, computerName) => {
+  return disconnectFromRemote(computerName);
+});
+
+ipcMain.handle('get-active-connections', () => {
+  return activeProxyProcesses.map(proxy => ({
+    computerName: proxy.computerName,
+    localPort: proxy.localPort,
+    remoteUrl: proxy.remoteUrl,
+    startTime: proxy.startTime
+  }));
+});
+
 ipcMain.handle('copy-to-clipboard', (event, text) => {
   const { clipboard } = require('electron');
   clipboard.writeText(text);
@@ -821,6 +1013,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   app.isQuitting = true;
   stopTunnel();
+  cleanupProxyProcesses();
 });
 
 // Prevent multiple instances

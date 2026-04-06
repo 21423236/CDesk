@@ -590,6 +590,59 @@ body::before {
   transform: translateX(4px);
 }
 
+.remote-card.connected {
+  border-color: var(--status-success);
+  background: rgba(63, 185, 80, 0.05);
+}
+
+.remote-card.connected:hover {
+  border-color: var(--status-success);
+  background: rgba(63, 185, 80, 0.1);
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.status-badge.connected {
+  background: var(--status-success);
+  color: var(--text-inverse);
+}
+
+.connection-port {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.remote-card .btn-danger {
+  background: var(--status-error);
+  color: var(--text-inverse);
+  border: 1px solid transparent;
+}
+
+.remote-card .btn-danger:hover {
+  background: #da3633;
+  transform: scale(1.05);
+}
+
+.remote-card .btn-danger svg {
+  width: 18px;
+  height: 18px;
+}
+
 .remote-icon {
   width: 44px;
   height: 44px;
