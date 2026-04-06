@@ -765,8 +765,21 @@ function disconnectFromRemote(computerName) {
 // Connect to remote computer
 async function connectToRemote(computer) {
   try {
+    // 0. Validate URL
+    if (!computer.url || !computer.url.startsWith('https://')) {
+      return { success: false, error: 'Remote computer URL is invalid or empty. Ask the remote user to restart their tunnel.' };
+    }
+
     console.log(`Connecting to remote computer: ${computer.name}`);
     console.log(`Remote URL: ${computer.url}`);
+
+    // Check URL freshness (warn if older than 10 minutes)
+    if (computer.timestamp) {
+      const urlAge = Date.now() - new Date(computer.timestamp).getTime();
+      if (urlAge > 10 * 60 * 1000) {
+        console.log(`Warning: Remote URL is ${Math.round(urlAge / 60000)} minutes old. It may be stale.`);
+      }
+    }
     
     // 1. Parse remote hostname
     const remoteHostname = computer.url.replace(/^https?:\/\//, '');
@@ -791,9 +804,12 @@ async function connectToRemote(computer) {
     // 4. Monitor proxy startup
     let proxyReady = false;
     let proxyError = null;
+    let stderrBuffer = '';
+    let stdoutBuffer = '';
     
     proxyProcess.stdout.on('data', (data) => {
       const output = data.toString();
+      stdoutBuffer += output;
       console.log(`Proxy stdout: ${output}`);
       
       if (output.includes('Start Websocket listener') || 
@@ -805,17 +821,21 @@ async function connectToRemote(computer) {
     
     proxyProcess.stderr.on('data', (data) => {
       const output = data.toString();
+      stderrBuffer += output;
       console.log(`Proxy stderr: ${output}`);
       
       // Check for ready indicators in stderr (cloudflared logs to stderr)
       if (output.includes('Start Websocket listener') ||
-          output.includes('Connection established')) {
+          output.includes('Connection established') ||
+          output.includes('Registered tunnel connection')) {
         proxyReady = true;
       }
       
       // Check for actual errors (not just informational messages)
-      if (output.includes('ERR ') || output.includes('error:') || output.includes('failed:')) {
-        proxyError = output;
+      if (output.includes('ERR ') || output.includes('error:') || 
+          output.includes('failed:') || output.includes('unable to') ||
+          output.includes('tunnel') && output.includes('not found')) {
+        proxyError = output.trim();
       }
     });
     
@@ -827,7 +847,16 @@ async function connectToRemote(computer) {
     proxyProcess.on('close', (code) => {
       console.log(`Proxy process exited with code ${code}`);
       if (code !== 0 && code !== null) {
-        proxyError = `Proxy exited with code ${code}`;
+        // Use stderr content as error message if available, otherwise generic message
+        const stderrMsg = stderrBuffer.trim();
+        if (stderrMsg) {
+          // Extract the most relevant error line (last non-empty line with content)
+          const errorLines = stderrMsg.split('\n').filter(l => l.trim().length > 0);
+          const lastLine = errorLines[errorLines.length - 1] || stderrMsg.substring(0, 200);
+          proxyError = `cloudflared error: ${lastLine.trim()}`;
+        } else {
+          proxyError = `Proxy exited with code ${code}. The remote tunnel may be offline or unreachable.`;
+        }
       }
     });
     
