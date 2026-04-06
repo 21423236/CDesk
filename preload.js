@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   connectToRemote: (computer) => ipcRenderer.invoke('connect-to-remote', computer),
   disconnectFromRemote: (computerName) => ipcRenderer.invoke('disconnect-from-remote', computerName),
   getActiveConnections: () => ipcRenderer.invoke('get-active-connections'),
+  manualRefreshRemotes: () => ipcRenderer.invoke('manual-refresh-remotes'),
 
   // Utilities
   copyToClipboard: (text) => ipcRenderer.invoke('copy-to-clipboard', text),

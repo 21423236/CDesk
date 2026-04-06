@@ -174,6 +174,26 @@ async function loadRemoteComputers() {
   }
 }
 
+// Manual refresh with sync
+async function manualRefreshRemotes() {
+  try {
+    elements.refreshBtn.classList.add('loading');
+    elements.refreshBtn.disabled = true;
+    
+    await window.electronAPI.manualRefreshRemotes();
+    await loadRemoteComputers();
+    
+    setTimeout(() => {
+      elements.refreshBtn.classList.remove('loading');
+      elements.refreshBtn.disabled = false;
+    }, 1000);
+  } catch (error) {
+    console.error('Failed to refresh:', error);
+    elements.refreshBtn.classList.remove('loading');
+    elements.refreshBtn.disabled = false;
+  }
+}
+
 // Update sync status
 function updateSyncStatus(computers) {
   if (!elements.syncStatus) return;
@@ -545,7 +565,7 @@ function setupEventListeners() {
   });
 
   // Refresh
-  elements.refreshBtn.addEventListener('click', loadRemoteComputers);
+  elements.refreshBtn.addEventListener('click', manualRefreshRemotes);
 
   // Close modal on overlay click
   elements.settingsModal.addEventListener('click', (e) => {

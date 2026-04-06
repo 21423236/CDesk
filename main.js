@@ -687,7 +687,7 @@ function startRefreshInterval() {
         console.error('Refresh error:', error);
       }
     }
-  }, 30000); // 30 seconds
+  }, 300000); // 5 minutes
 }
 
 // Stop refresh interval
@@ -978,6 +978,12 @@ ipcMain.handle('get-active-connections', () => {
     remoteUrl: proxy.remoteUrl,
     startTime: proxy.startTime
   }));
+});
+
+ipcMain.handle('manual-refresh-remotes', async () => {
+  console.log('Manual refresh triggered by user');
+  await syncWithGist();
+  return { success: true };
 });
 
 ipcMain.handle('copy-to-clipboard', (event, text) => {

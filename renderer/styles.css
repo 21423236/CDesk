@@ -244,6 +244,20 @@ body::before {
   background: var(--bg-tertiary);
 }
 
+.btn-ghost.loading {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-ghost.loading svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .btn-icon {
   width: 40px;
   height: 40px;
