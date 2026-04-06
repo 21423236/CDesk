@@ -40,13 +40,13 @@ const elements = {
   settingsForm: document.getElementById('settingsForm'),
 
   // Form inputs
-  githubToken: document.getElementById('githubToken'),
-  gistId: document.getElementById('gistId'),
+  giteeToken: document.getElementById('giteeToken'),
+  giteeUsername: document.getElementById('giteeUsername'),
+  giteeRepo: document.getElementById('giteeRepo'),
   computerName: document.getElementById('computerName'),
   rdpPort: document.getElementById('rdpPort'),
   testTokenBtn: document.getElementById('testTokenBtn'),
   tokenStatus: document.getElementById('tokenStatus'),
-  getTokenLink: document.getElementById('getTokenLink'),
   computerName: document.getElementById('computerName'),
   rdpPort: document.getElementById('rdpPort'),
 
@@ -82,8 +82,9 @@ async function loadActiveConnections() {
 async function loadConfig() {
   try {
     config = await window.electronAPI.getConfig();
-    elements.githubToken.value = config.githubToken || '';
-    elements.gistId.value = config.gistId || '';
+    elements.giteeToken.value = config.giteeToken || '';
+    elements.giteeUsername.value = config.giteeUsername || '';
+    elements.giteeRepo.value = config.giteeRepo || 'rdp-tunnel-config';
     elements.computerName.value = config.computerName || 'ComputerA';
     elements.rdpPort.value = config.rdpPort || 3389;
   } catch (error) {
@@ -440,8 +441,9 @@ function closeSettingsModal() {
 
 async function saveSettings() {
   const newConfig = {
-    githubToken: elements.githubToken.value.trim(),
-    gistId: elements.gistId.value.trim(),
+    giteeToken: elements.giteeToken.value.trim(),
+    giteeUsername: elements.giteeUsername.value.trim(),
+    giteeRepo: elements.giteeRepo.value.trim() || 'rdp-tunnel-config',
     computerName: elements.computerName.value.trim() || 'ComputerA',
     rdpPort: parseInt(elements.rdpPort.value) || 3389
   };
@@ -456,12 +458,18 @@ async function saveSettings() {
   }
 }
 
-// Test GitHub Token
+// Test Gitee Token
 async function testToken() {
-  const token = elements.githubToken.value.trim();
+  const token = elements.giteeToken.value.trim();
+  const username = elements.giteeUsername.value.trim();
   
   if (!token) {
-    showToast('Please enter a GitHub Token first', 'warning');
+    showToast('Please enter a Gitee Token first', 'warning');
+    return;
+  }
+  
+  if (!username) {
+    showToast('Please enter a Gitee Username first', 'warning');
     return;
   }
   
@@ -479,8 +487,9 @@ async function testToken() {
   try {
     // Save token first
     await window.electronAPI.saveConfig({
-      githubToken: token,
-      gistId: elements.gistId.value.trim(),
+      giteeToken: token,
+      giteeUsername: username,
+      giteeRepo: elements.giteeRepo.value.trim() || 'rdp-tunnel-config',
       computerName: elements.computerName.value.trim() || 'ComputerA',
       rdpPort: parseInt(elements.rdpPort.value) || 3389
     });
@@ -559,10 +568,6 @@ function setupEventListeners() {
   elements.cancelSettings.addEventListener('click', closeSettingsModal);
   elements.saveSettings.addEventListener('click', saveSettings);
   elements.testTokenBtn.addEventListener('click', testToken);
-  elements.getTokenLink.addEventListener('click', (e) => {
-    e.preventDefault();
-    window.electronAPI.openExternal('https://github.com/settings/tokens/new?scopes=gist');
-  });
 
   // Refresh
   elements.refreshBtn.addEventListener('click', manualRefreshRemotes);

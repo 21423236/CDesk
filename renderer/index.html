@@ -155,18 +155,23 @@
         <div class="modal-body">
           <form id="settingsForm">
             <div class="form-group">
-              <label for="githubToken">GitHub Token</label>
-              <input type="password" id="githubToken" class="form-input" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
+              <label for="giteeUsername">Gitee Username</label>
+              <input type="text" id="giteeUsername" class="form-input" placeholder="Your Gitee username">
+              <span class="form-hint">Your Gitee account username</span>
+            </div>
+            <div class="form-group">
+              <label for="giteeToken">Gitee Token</label>
+              <input type="password" id="giteeToken" class="form-input" placeholder="Your Gitee private token">
               <button type="button" class="btn btn-primary" id="testTokenBtn" style="margin-top: 8px; width: 100%;">
                 Test Token
               </button>
-              <span class="form-hint">Required gist permission. <a href="#" id="getTokenLink">Get token</a></span>
+              <span class="form-hint">Generate at <a href="https://gitee.com/profile/personal_access_tokens" target="_blank">Gitee Token Settings</a></span>
               <div class="token-status" id="tokenStatus"></div>
             </div>
             <div class="form-group">
-              <label for="gistId">Gist ID (Optional)</label>
-              <input type="text" id="gistId" class="form-input" placeholder="Auto-generated on first run">
-              <span class="form-hint">Leave empty to create automatically</span>
+              <label for="giteeRepo">Repository Name</label>
+              <input type="text" id="giteeRepo" class="form-input" placeholder="rdp-tunnel-config" readonly>
+              <span class="form-hint">Config will be stored in this repository</span>
             </div>
             <div class="form-group">
               <label for="computerName">Computer Name</label>

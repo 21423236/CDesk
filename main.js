@@ -9,8 +9,10 @@ const Store = require('electron-store');
 const store = new Store({
   name: 'rdp-tunnel-config',
   defaults: {
-    githubToken: '',
-    gistId: '',
+    giteeToken: '',
+    giteeUsername: '',
+    giteeRepo: 'rdp-tunnel-config',
+    configFilePath: 'rdp-tunnel.json',
     computerName: 'ComputerA',
     rdpPort: 3389
   }
@@ -249,132 +251,101 @@ async function installCloudflared() {
   });
 }
 
-// Validate GitHub Token
-async function validateGitHubToken() {
-  const token = store.get('githubToken');
+// Validate Gitee Token
+async function validateGiteeToken() {
+  const token = store.get('giteeToken');
+  const username = store.get('giteeUsername');
   
-  if (!token || token === 'your_github_token_here') {
-    throw new Error('GitHub Token not configured. Please set it in Settings.');
+  if (!token) {
+    throw new Error('Gitee Token not configured. Please set it in Settings.');
+  }
+  
+  if (!username) {
+    throw new Error('Gitee Username not configured. Please set it in Settings.');
   }
   
   return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'api.github.com',
-      path: '/user',
-      method: 'GET',
-      headers: {
-        'Authorization': `token ${token}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'Node.js-RDP-Tunnel-Manager/1.0'
-      }
-    };
+    const url = `https://gitee.com/api/v5/user?access_token=${token}`;
     
-    const req = https.request(options, (res) => {
+    https.get(url, (res) => {
       let data = '';
       res.on('data', (chunk) => data += chunk);
       res.on('end', () => {
         console.log(`Token validation: Status ${res.statusCode}`);
         
         if (res.statusCode === 401) {
-          reject(new Error('GitHub Token is invalid or expired. Please get a new token from https://github.com/settings/tokens'));
-          return;
-        }
-        
-        if (res.statusCode === 403) {
-          reject(new Error('GitHub Token lacks required permissions. Please ensure token has "gist" scope.'));
+          reject(new Error('Gitee Token is invalid or expired. Please get a new token from https://gitee.com/profile/personal_access_tokens'));
           return;
         }
         
         if (res.statusCode >= 200 && res.statusCode < 300) {
           try {
             const user = JSON.parse(data);
-            console.log(`Token valid for user: ${user.login}`);
-            resolve({ valid: true, user: user.login });
+            if (user.login === username) {
+              console.log(`Token valid for user: ${user.login}`);
+              resolve({ valid: true, user: user.login });
+            } else {
+              reject(new Error(`Token belongs to user '${user.login}', but configured username is '${username}'`));
+            }
           } catch (e) {
-            reject(new Error('Invalid response from GitHub'));
+            reject(new Error('Invalid response from Gitee'));
           }
         } else {
-          reject(new Error(`GitHub API returned status ${res.statusCode}`));
+          reject(new Error(`Gitee API returned status ${res.statusCode}`));
         }
       });
-    });
-    
-    req.on('error', (error) => {
+    }).on('error', (error) => {
       reject(new Error(`Network error: ${error.message}`));
     });
-    
-    req.end();
   });
 }
 
-// GitHub API helpers
-async function githubApiRequest(urlPath, options = {}) {
-  const token = store.get('githubToken');
+// Gitee API helpers
+async function giteeApiRequest(method, filePath, body = null) {
+  const token = store.get('giteeToken');
+  const username = store.get('giteeUsername');
+  const repo = store.get('giteeRepo');
   
-  // Parse URL or use path
-  const urlObj = urlPath.startsWith('http') ? new URL(urlPath) : null;
-  const hostname = urlObj ? urlObj.hostname : 'api.github.com';
-  const path = urlObj ? urlObj.pathname : urlPath;
-  
-  const requestOptions = {
-    hostname: hostname,
-    path: path,
-    method: options.method || 'GET',
-    headers: {
-      'Authorization': `token ${token}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'Node.js-RDP-Tunnel-Manager/1.0',
-      ...options.headers
-    }
-  };
-
-  // Add Content-Length for POST/PATCH requests
-  if (options.body) {
-    requestOptions.headers['Content-Length'] = Buffer.byteLength(options.body);
+  if (!token || !username || !repo) {
+    throw new Error('Gitee configuration incomplete');
   }
-
+  
+  const url = `https://gitee.com/api/v5/repos/${username}/${repo}/contents/${filePath}`;
+  
   return new Promise((resolve, reject) => {
-    const req = https.request(requestOptions, (res) => {
+    let requestUrl = url;
+    const options = {
+      method: method,
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Node.js-RDP-Tunnel-Manager/1.0'
+      }
+    };
+    
+    let requestBody = null;
+    
+    if (method === 'GET') {
+      requestUrl += `?access_token=${token}&ref=master`;
+    } else {
+      const bodyWithToken = { ...body, access_token: token };
+      requestBody = JSON.stringify(bodyWithToken);
+      console.log('Gitee API PUT URL:', requestUrl);
+      console.log('Gitee API PUT Body:', JSON.stringify(bodyWithToken, null, 2));
+      options.headers['Content-Length'] = Buffer.byteLength(requestBody);
+    }
+    
+    const req = https.request(requestUrl, options, (res) => {
       let data = '';
       res.on('data', (chunk) => data += chunk);
       res.on('end', () => {
-        // Monitor rate limit
-        const rateLimit = {
-          limit: parseInt(res.headers['x-ratelimit-limit'] || '5000'),
-          remaining: parseInt(res.headers['x-ratelimit-remaining'] || '5000'),
-          reset: parseInt(res.headers['x-ratelimit-reset'] || '0')
-        };
+        console.log(`Gitee API Response: Status ${res.statusCode} for ${method} ${filePath}`);
         
-        const usedPercentage = (rateLimit.limit - rateLimit.remaining) / rateLimit.limit * 100;
-        console.log(`GitHub API Rate Limit: ${rateLimit.remaining}/${rateLimit.limit} remaining (${usedPercentage.toFixed(1)}% used)`);
-        
-        // Warn if approaching rate limit
-        if (rateLimit.remaining < 500) {
-          console.warn(`Warning: GitHub API rate limit approaching. Only ${rateLimit.remaining} requests remaining.`);
-        }
-        
-        // Handle rate limit exceeded
-        if (res.statusCode === 403 && rateLimit.remaining === 0) {
-          const resetTime = new Date(rateLimit.reset * 1000);
-          const waitSeconds = Math.ceil((resetTime - new Date()) / 1000);
-          reject(new Error(`GitHub API rate limit exceeded. Resets in ${waitSeconds} seconds at ${resetTime.toLocaleTimeString()}`));
-          return;
-        }
-        
-        console.log(`GitHub API Response: Status ${res.statusCode}`);
-        console.log(`Response headers:`, JSON.stringify(res.headers));
-        console.log(`Response body (${data.length} bytes):`, data.substring(0, 500));
-        
-        // Handle empty response
         if (!data || data.trim() === '') {
-          reject(new Error(`Empty response from GitHub API (Status: ${res.statusCode})`));
-          return;
-        }
-        
-        // Check if response is JSON
-        if (!data.trim().startsWith('{') && !data.trim().startsWith('[')) {
-          // Non-JSON response - likely an error message
-          reject(new Error(`GitHub API error (Status ${res.statusCode}): ${data.trim()}`));
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve({ success: true });
+          } else {
+            reject(new Error(`Empty response from Gitee API (Status: ${res.statusCode})`));
+          }
           return;
         }
         
@@ -383,123 +354,142 @@ async function githubApiRequest(urlPath, options = {}) {
           if (res.statusCode >= 200 && res.statusCode < 300) {
             resolve(parsed);
           } else {
+            console.log('Gitee API Error Response:', JSON.stringify(parsed, null, 2));
             const errorMsg = parsed.message || parsed.error || `HTTP ${res.statusCode}`;
-            console.log('GitHub API Error:', errorMsg);
+            console.log('Gitee API Error:', errorMsg);
             reject(new Error(errorMsg));
           }
         } catch (e) {
-          console.log('JSON Parse Error. Raw data:', data.substring(0, 200));
-          reject(new Error(`JSON parse failed. Response: ${data.substring(0, 100)}`));
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(data);
+          } else {
+            reject(new Error(`Gitee API error: ${data.substring(0, 100)}`));
+          }
         }
       });
     });
-
+    
     req.on('error', (error) => {
-      console.log('GitHub API Request Error:', error.message);
+      console.log('Gitee API Request Error:', error.message);
       reject(new Error(`Network error: ${error.message}`));
     });
     
-    if (options.body) {
-      req.write(options.body);
+    if (requestBody) {
+      req.write(requestBody);
     }
     req.end();
   });
 }
 
-// Create or get Gist
-async function getOrCreateGist() {
-  const gistId = store.get('gistId');
-
-  if (gistId) {
-    try {
-      const gist = await githubApiRequest(`https://api.github.com/gists/${gistId}`);
-      return gist;
-    } catch (error) {
-      console.log('Failed to get existing gist, creating new one');
+// Initialize config file in repository
+async function initConfigFile() {
+  const configFilePath = store.get('configFilePath');
+  
+  try {
+    const file = await giteeApiRequest('GET', configFilePath);
+    
+    console.log('GET file response type:', typeof file);
+    console.log('GET file response:', JSON.stringify(file, null, 2).substring(0, 500));
+    console.log('file.sha:', file.sha);
+    
+    // File doesn't exist (Gitee returns empty array)
+    if (Array.isArray(file) && file.length === 0) {
+      console.log('Config file not found, creating new one...');
+      
+      const initialContent = {
+        lastUpdated: new Date().toISOString(),
+        computers: {}
+      };
+      
+      const body = {
+        message: 'Initialize RDP Tunnel Config',
+        content: Buffer.from(JSON.stringify(initialContent, null, 2)).toString('base64')
+      };
+      
+      const result = await giteeApiRequest('POST', configFilePath, body);
+      console.log('Config file created');
+      return result.content;
     }
+
+    // File exists (returns object with sha)
+    if (file && file.sha) {
+      console.log('Config file exists, SHA:', file.sha);
+      return file;
+    }
+    
+    // Fallback: treat as file not found
+    console.log('Unexpected response format, treating as file not found');
+    throw new Error('Unexpected response format from Gitee');
+  } catch (error) {
+    console.log('Config file not found, creating new one...');
+    
+    const initialContent = {
+      lastUpdated: new Date().toISOString(),
+      computers: {}
+    };
+    
+    const body = {
+      message: 'Initialize RDP Tunnel Config',
+      content: Buffer.from(JSON.stringify(initialContent, null, 2)).toString('base64'),
+      ref: 'master'
+    };
+    
+    const result = await giteeApiRequest('POST', configFilePath, body);
+    console.log('Config file created');
+    return result.content;
   }
-
-  // Create new gist
-  const body = JSON.stringify({
-    description: 'RDP Tunnel Addresses - Auto Generated',
-    public: false,
-    files: {
-      'rdp-tunnel.json': {
-        content: JSON.stringify({
-          lastUpdated: new Date().toISOString(),
-          computers: {}
-        }, null, 2)
-      }
-    }
-  });
-
-  const gist = await githubApiRequest('https://api.github.com/gists', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body
-  });
-
-  store.set('gistId', gist.id);
-  return gist;
 }
 
-// Update Gist with tunnel address
-async function updateGistAddress(tunnelUrl) {
-  const gistId = store.get('gistId');
+// Sync tunnel info with repository
+async function syncWithRepo() {
+  if (!tunnelUrl) return;
+  
   const computerName = store.get('computerName');
   const rdpPort = store.get('rdpPort');
-
-  if (!gistId) return;
-
-  // Get current content
-  const gist = await githubApiRequest(`https://api.github.com/gists/${gistId}`);
-  let content = {};
+  const configFilePath = store.get('configFilePath');
+  
   try {
-    content = JSON.parse(gist.files['rdp-tunnel.json'].content);
-  } catch (e) {
-    content = { computers: {} };
+    const file = await giteeApiRequest('GET', configFilePath);
+    const content = JSON.parse(Buffer.from(file.content, 'base64').toString('utf-8'));
+    
+    content.lastUpdated = new Date().toISOString();
+    content.computers[computerName] = {
+      url: tunnelUrl,
+      timestamp: new Date().toISOString(),
+      port: rdpPort
+    };
+    
+    const body = {
+      message: `Update tunnel info for ${computerName}`,
+      content: Buffer.from(JSON.stringify(content, null, 2)).toString('base64'),
+      sha: file.sha,
+      ref: 'master'
+    };
+    
+    await giteeApiRequest('PUT', configFilePath, body);
+    console.log('Synced tunnel info to Gitee repo');
+  } catch (error) {
+    console.error('Failed to sync with repo:', error);
+    throw error;
   }
-
-  // Update with new data
-  content.lastUpdated = new Date().toISOString();
-  content.computers[computerName] = {
-    url: tunnelUrl,
-    timestamp: new Date().toISOString(),
-    port: rdpPort
-  };
-
-  // Push update
-  const body = JSON.stringify({
-    files: {
-      'rdp-tunnel.json': {
-        content: JSON.stringify(content, null, 2)
-      }
-    }
-  });
-
-  await githubApiRequest(`https://api.github.com/gists/${gistId}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body
-  });
 }
 
-// Get remote computers from Gist
+// Get remote computers from repository
 async function getRemoteComputers() {
-  const gistId = store.get('gistId');
   const computerName = store.get('computerName');
-
-  if (!gistId) return [];
-
+  const configFilePath = store.get('configFilePath');
+  
   try {
-    const gist = await githubApiRequest(`https://api.github.com/gists/${gistId}`);
-    const content = JSON.parse(gist.files['rdp-tunnel.json'].content);
+    const file = await giteeApiRequest('GET', configFilePath);
+    
+    // Empty array means file doesn't exist
+    if (Array.isArray(file) && file.length === 0) {
+      return [];
+    }
+    
+    const content = JSON.parse(Buffer.from(file.content, 'base64').toString('utf-8'));
     const computers = [];
-
+    
     for (const [name, data] of Object.entries(content.computers || {})) {
       if (name !== computerName) {
         computers.push({
@@ -510,7 +500,7 @@ async function getRemoteComputers() {
         });
       }
     }
-
+    
     return computers;
   } catch (error) {
     console.error('Failed to get remote computers:', error);
@@ -527,13 +517,13 @@ async function startTunnel() {
   const rdpPort = store.get('rdpPort');
 
   try {
-    // Validate GitHub Token first
-    console.log('Validating GitHub Token...');
-    await validateGitHubToken();
-    console.log('GitHub Token validated successfully');
+    // Validate Gitee Token first
+    console.log('Validating Gitee Token...');
+    await validateGiteeToken();
+    console.log('Gitee Token validated successfully');
 
-    // Initialize Gist
-    await getOrCreateGist();
+    // Initialize config file
+    await initConfigFile();
 
     // Clear old logs
     if (fs.existsSync(outputLogPath)) fs.unlinkSync(outputLogPath);
@@ -558,8 +548,8 @@ async function startTunnel() {
         urlFound = true;
         isTunnelRunning = true;
 
-        // Update Gist
-        updateGistAddress(tunnelUrl);
+        // Update repository
+        syncWithRepo();
 
         // Start refresh interval
         startRefreshInterval();
@@ -614,7 +604,7 @@ async function startTunnel() {
           tunnelUrl = match[0];
           urlFound = true;
           isTunnelRunning = true;
-          updateGistAddress(tunnelUrl);
+          syncWithRepo();
           startRefreshInterval();
 
           // Immediately get remote computers list
@@ -676,7 +666,7 @@ function startRefreshInterval() {
   refreshInterval = setInterval(async () => {
     if (isTunnelRunning && tunnelUrl) {
       try {
-        await updateGistAddress(tunnelUrl);
+        await syncWithRepo();
 
         // Get remote computers
         const remoteComputers = await getRemoteComputers();
@@ -905,16 +895,20 @@ enablecredsspsupport:i:1
 // IPC Handlers
 ipcMain.handle('get-config', () => {
   return {
-    githubToken: store.get('githubToken'),
-    gistId: store.get('gistId'),
+    giteeToken: store.get('giteeToken'),
+    giteeUsername: store.get('giteeUsername'),
+    giteeRepo: store.get('giteeRepo'),
+    configFilePath: store.get('configFilePath'),
     computerName: store.get('computerName'),
     rdpPort: store.get('rdpPort')
   };
 });
 
 ipcMain.handle('save-config', (event, config) => {
-  store.set('githubToken', config.githubToken);
-  store.set('gistId', config.gistId);
+  store.set('giteeToken', config.giteeToken);
+  store.set('giteeUsername', config.giteeUsername);
+  store.set('giteeRepo', config.giteeRepo || 'rdp-tunnel-config');
+  store.set('configFilePath', config.configFilePath || 'rdp-tunnel.json');
   store.set('computerName', config.computerName);
   store.set('rdpPort', config.rdpPort);
   return { success: true };
@@ -922,7 +916,7 @@ ipcMain.handle('save-config', (event, config) => {
 
 ipcMain.handle('validate-token', async () => {
   try {
-    const result = await validateGitHubToken();
+    const result = await validateGiteeToken();
     return { success: true, user: result.user };
   } catch (error) {
     return { success: false, error: error.message };
@@ -982,7 +976,7 @@ ipcMain.handle('get-active-connections', () => {
 
 ipcMain.handle('manual-refresh-remotes', async () => {
   console.log('Manual refresh triggered by user');
-  await syncWithGist();
+  await syncWithRepo();
   return { success: true };
 });
 
