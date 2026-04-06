@@ -689,20 +689,14 @@ function stopRefreshInterval() {
 }
 
 // Find available local port for proxy
-async function findAvailablePort(startPort = 3390, endPort = 3400) {
+async function findAvailablePort(startPort = 49152, endPort = 49252) {
   const net = require('net');
   
   for (let port = startPort; port <= endPort; port++) {
     try {
       await new Promise((resolve, reject) => {
         const server = net.createServer();
-        server.once('error', (err) => {
-          if (err.code === 'EADDRINUSE') {
-            reject(err);
-          } else {
-            reject(err);
-          }
-        });
+        server.once('error', reject);
         server.once('listening', () => {
           server.close();
           resolve();
@@ -713,7 +707,9 @@ async function findAvailablePort(startPort = 3390, endPort = 3400) {
       return port;
     } catch (err) {
       if (err.code === 'EADDRINUSE') {
-        console.log(`Port ${port} is in use, trying next port`);
+        const occupant = activeProxyProcesses.find(p => p.localPort === port);
+        const who = occupant ? ` (used by ${occupant.computerName})` : '';
+        console.log(`Port ${port} is in use${who}, trying next port`);
         continue;
       }
       throw err;
@@ -784,9 +780,18 @@ async function connectToRemote(computer) {
     // 1. Parse remote hostname
     const remoteHostname = computer.url.replace(/^https?:\/\//, '');
     console.log(`Remote hostname: ${remoteHostname}`);
+
+    // 1.5 Clean up stale proxy processes before finding a port
+    activeProxyProcesses = activeProxyProcesses.filter(proxy => {
+      if (proxy.process.killed || proxy.process.exitCode !== null) {
+        console.log(`Cleaning up stale proxy for ${proxy.computerName} on port ${proxy.localPort}`);
+        return false;
+      }
+      return true;
+    });
     
     // 2. Find available local port for proxy
-    const localPort = await findAvailablePort(3390, 3400);
+    const localPort = await findAvailablePort();
     console.log(`Assigned local port: ${localPort}`);
     
     // 3. Start cloudflared access TCP proxy
